@@ -1,49 +1,55 @@
-const express = require("express");
-const axios = require("axios");
+import express from "express";
+import cors from "cors";
+import { exec } from "child_process";
+import fs from "fs";
+import path from "path";
 
 const app = express();
+app.use(cors());
+
 const PORT = process.env.PORT || 3000;
+const STREAM_DIR = "./streams";
 
-// Health check
-app.get("/", (req, res) => {
-  res.send("PR DigiTV TS Proxy is running");
-});
+if (!fs.existsSync(STREAM_DIR)) {
+  fs.mkdirSync(STREAM_DIR);
+}
 
-// TS stream proxy
-app.get("/stream", async (req, res) => {
+// 🔥 Convert TS → HLS
+app.get("/hls", (req, res) => {
   const tsUrl = req.query.url;
+  if (!tsUrl) return res.status(400).send("Missing url");
 
-  if (!tsUrl) {
-    return res.status(400).send("Missing ?url=");
+  const id = Buffer.from(tsUrl).toString("base64").replace(/=/g, "");
+  const outDir = path.join(STREAM_DIR, id);
+  const playlist = path.join(outDir, "index.m3u8");
+
+  if (fs.existsSync(playlist)) {
+    return res.sendFile(path.resolve(playlist));
   }
 
-  try {
-    const response = await axios({
-      method: "GET",
-      url: tsUrl,
-      responseType: "stream",
-      timeout: 15000
-    });
+  fs.mkdirSync(outDir, { recursive: true });
 
-    // CORS headers (CRITICAL)
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Headers", "*");
-    res.setHeader("Content-Type", "video/mp2t");
+  const cmd = `
+    ffmpeg -loglevel error -i "${tsUrl}" \
+    -c copy -f hls \
+    -hls_time 4 \
+    -hls_list_size 6 \
+    -hls_flags delete_segments \
+    "${playlist}"
+  `;
 
-    // Pipe TS stream to browser
-    response.data.pipe(res);
-
-    response.data.on("error", err => {
-      console.error("Stream error:", err.message);
-      res.end();
-    });
-
-  } catch (err) {
-    console.error("Proxy error:", err.message);
-    res.status(500).send("Failed to fetch TS stream");
-  }
+  exec(cmd, err => {
+    if (err) {
+      console.error(err);
+      return res.status(500).send("FFmpeg failed");
+    }
+    res.sendFile(path.resolve(playlist));
+  });
 });
+
+// Serve HLS segments
+app.use("/streams", express.static("streams"));
 
 app.listen(PORT, () => {
-  console.log("PR DigiTV TS Proxy running on port", PORT);
+  console.log("TS→HLS server running on port", PORT);
 });
