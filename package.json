@@ -1,13 +1,12 @@
 {
   "name": "prdigitv-ts-proxy",
   "version": "1.0.0",
-  "description": "IPTV TS to HLS proxy for browser playback",
-  "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.6.7"
+    "cors": "^2.8.5"
   }
 }
